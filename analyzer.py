@@ -35,7 +35,7 @@ class Analyzer:
         self.split_cooldown = 5 # Seconds
         
         # Debug
-        self.debug_mode = True
+        self.debug_mode = False
         self.debug_counter = 0
     
     def log(self, message):
