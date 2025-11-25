@@ -11,10 +11,10 @@ class LiveSplitClient:
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
-            print(f"Connected to LiveSplit Server at {self.host}:{self.port}")
+            print(f"Connected to LiveSplit Server at {self.host}:{self.port}", flush=True)
             return True
         except Exception as e:
-            print(f"Failed to connect to LiveSplit: {e}")
+            print(f"Failed to connect to LiveSplit: {e}", flush=True)
             self.socket = None
             return False
 
@@ -24,13 +24,15 @@ class LiveSplitClient:
         try:
             self.socket.sendall((command + '\r\n').encode('utf-8'))
         except Exception as e:
-            print(f"Error sending command '{command}': {e}")
+            print(f"Error sending command '{command}': {e}", flush=True)
             self.socket = None  # Force reconnect on next attempt
 
     def start(self):
+        print("[LiveSplit] Starting timer", flush=True)
         self.send_command("starttimer")
 
     def split(self):
+        print("[LiveSplit] Splitting", flush=True)
         self.send_command("split")
 
     def reset(self):
@@ -44,4 +46,5 @@ class LiveSplitClient:
 
     def set_gametime(self, seconds):
         # LiveSplit expects time in seconds (float)
+        # Only log occasionally to avoid spam
         self.send_command(f"setgametime {seconds}")
