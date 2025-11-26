@@ -16,5 +16,11 @@
     "left": 848,
     "width": 211,
     "height": 26
+  },
+  "countdown_region": {
+    "top": 371,
+    "left": 740,
+    "width": 451,
+    "height": 345
   }
 }

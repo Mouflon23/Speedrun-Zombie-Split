@@ -17,20 +17,24 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("EVA Zombie Split Analyzer")
-        self.root.geometry("400x450")
+        self.root.geometry("400x520")
         self.root.attributes("-topmost", True)
 
         self.livesplit = LiveSplitClient()
         self.analyzer = Analyzer(self.livesplit, log_callback=self.log_async)
         self.analysis_thread = None
         
-        # Three separate regions
+        # Four separate regions
         self.timer_region = None
         self.gametype_region = None
         self.level_region = None
+        self.countdown_region = None
 
         self.create_widgets()
         self.load_config()
+        
+        # Auto-connect to LiveSplit on launch
+        self.connect_livesplit()
 
     def create_widgets(self):
         # Status Frame
@@ -64,6 +68,12 @@ class App:
         self.lbl_level_region.pack(pady=2)
         btn_select_level = ttk.Button(region_frame, text="Select Level Region", command=lambda: self.select_region("level"))
         btn_select_level.pack(pady=2)
+        
+        # Countdown Region (Optional)
+        self.lbl_countdown_region = ttk.Label(region_frame, text="Countdown: Not Selected (Optional)", foreground="gray")
+        self.lbl_countdown_region.pack(pady=2)
+        btn_select_countdown = ttk.Button(region_frame, text="Select Countdown Region", command=lambda: self.select_region("countdown"))
+        btn_select_countdown.pack(pady=2)
 
         # Controls
         control_frame = ttk.LabelFrame(self.root, text="Controls")
@@ -114,15 +124,19 @@ class App:
             elif region_type == "level":
                 self.level_region = region
                 self.lbl_level_region.config(text=f"Level: {region['width']}x{region['height']}", foreground="green")
+            elif region_type == "countdown":
+                self.countdown_region = region
+                self.lbl_countdown_region.config(text=f"Countdown: {region['width']}x{region['height']}", foreground="green")
             
             # Update analyzer
             self.analyzer.update_regions(
                 timer_region=self.timer_region,
                 gametype_region=self.gametype_region,
-                level_region=self.level_region
+                level_region=self.level_region,
+                countdown_region=self.countdown_region
             )
             
-            # Enable start button if all three regions are set
+            # Enable start button if all three REQUIRED regions are set (countdown is optional)
             if self.timer_region and self.gametype_region and self.level_region:
                 self.btn_start.config(state="normal")
             
@@ -148,6 +162,8 @@ class App:
                     self.set_region('gametype', config['gametype_region'])
                 if 'level_region' in config:
                     self.set_region('level', config['level_region'])
+                if 'countdown_region' in config:
+                    self.set_region('countdown', config['countdown_region'])
                 
                 self.log("Configuration loaded.")
             except Exception as e:
@@ -160,7 +176,8 @@ class App:
         config = {
             'timer_region': self.timer_region,
             'gametype_region': self.gametype_region,
-            'level_region': self.level_region
+            'level_region': self.level_region,
+            'countdown_region': self.countdown_region
         }
         
         try:
