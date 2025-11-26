@@ -6,7 +6,7 @@ class GameState:
     def __init__(self):
         self.state = self.IDLE
         self.current_level = None
-        self.start_time_value = None # The timer value when the run started (e.g., 30:00)
+        self.start_time = None # The timer value when the run started (e.g., 30:00)
         self.last_timer_value = None
         
         # Define expected level sequence
@@ -17,12 +17,12 @@ class GameState:
         self.state = self.IDLE
         self.current_level = None
         self.current_level_index = -1
-        self.start_time_value = None
+        self.start_time = None
         self.last_timer_value = None
 
     def start_run(self, start_timer_value):
         self.state = self.RUNNING
-        self.start_time_value = start_timer_value
+        self.start_time = start_timer_value
         self.last_timer_value = start_timer_value
         self.current_level = self.level_sequence[0] # Assume start at first level
         self.current_level_index = 0

@@ -18,7 +18,7 @@ except pytesseract.TesseractNotFoundError:
 
 
 class Analyzer:
-    def __init__(self, livesplit_client, timer_region=None, gametype_region=None, level_region=None, countdown_region=None, log_callback=None):
+    def __init__(self, livesplit_client, timer_region=None, gametype_region=None, level_region=None, countdown_region=None, log_callback=None, latency_compensation=0.1):
         self.livesplit = livesplit_client
         self.state = GameState()
         # self.sct = mss.mss() # Moved to thread
@@ -31,6 +31,7 @@ class Analyzer:
         
         self.running = False
         self.log_callback = log_callback  # Function to call for logging
+        self.latency_compensation = latency_compensation # User-configurable buffer
         
         self.last_split_time = 0
         self.split_cooldown = 5 # Seconds
@@ -138,6 +139,8 @@ class Analyzer:
             with mss.mss() as sct:
                 while self.running:
                     try:
+                        loop_start_time = time.time()
+                        
                         # STATE-BASED OCR - Only run necessary OCR operations
                         countdown_text = ""
                         gametype_text = ""
@@ -252,9 +255,16 @@ class Analyzer:
                                 # Start Time (e.g. 1800s) - Current Time (e.g. 1789s) = 11s elapsed
                                 elapsed_gametime = self.state.start_time - current_time_seconds
                                 
+                                # COMPENSATION: Add processing latency + buffer
+                                # The frame captured at 'loop_start_time' took 'time.time() - loop_start_time' to process.
+                                # By the time we send this, the game has advanced by that much.
+                                # We also add a small buffer (user configured) to account for transmission/display lag
+                                latency = time.time() - loop_start_time
+                                adjusted_gametime = elapsed_gametime + latency + self.latency_compensation
+                                
                                 # Send to LiveSplit (only if valid positive time)
-                                if elapsed_gametime >= 0:
-                                    self.livesplit.set_gametime(elapsed_gametime)
+                                if adjusted_gametime >= 0:
+                                    self.livesplit.set_gametime(adjusted_gametime)
                             
                             # Split Logic
                             # 1. "ZOMBIES" transition

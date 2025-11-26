@@ -22,5 +22,6 @@
     "left": 740,
     "width": 451,
     "height": 345
-  }
+  },
+  "latency_compensation": 0.1
 }

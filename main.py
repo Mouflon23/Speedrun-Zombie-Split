@@ -78,6 +78,16 @@ class App:
         # Controls
         control_frame = ttk.LabelFrame(self.root, text="Controls")
         control_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Latency Compensation Input
+        comp_frame = ttk.Frame(control_frame)
+        comp_frame.pack(fill="x", padx=5, pady=2)
+        ttk.Label(comp_frame, text="Latency Comp (s):").pack(side="left")
+        self.var_latency = tk.DoubleVar(value=0.1)
+        self.spin_latency = ttk.Spinbox(comp_frame, from_=0.0, to=2.0, increment=0.05, textvariable=self.var_latency, width=6)
+        self.spin_latency.pack(side="left", padx=5)
+        self.spin_latency.bind("<FocusOut>", self.update_latency)
+        self.spin_latency.bind("<Return>", self.update_latency)
 
         self.btn_start = ttk.Button(control_frame, text="Start Analysis", command=self.toggle_analysis, state="disabled")
         self.btn_start.pack(fill="x", padx=5, pady=5)
@@ -165,6 +175,10 @@ class App:
                 if 'countdown_region' in config:
                     self.set_region('countdown', config['countdown_region'])
                 
+                # Load latency compensation
+                if 'latency_compensation' in config:
+                    self.var_latency.set(config['latency_compensation'])
+                
                 self.log("Configuration loaded.")
             except Exception as e:
                 self.log(f"Failed to load config: {e}")
@@ -177,7 +191,8 @@ class App:
             'timer_region': self.timer_region,
             'gametype_region': self.gametype_region,
             'level_region': self.level_region,
-            'countdown_region': self.countdown_region
+            'countdown_region': self.countdown_region,
+            'latency_compensation': self.var_latency.get()
         }
         
         try:
@@ -186,12 +201,22 @@ class App:
         except Exception as e:
             self.log(f"Failed to save config: {e}")
 
+    def update_latency(self, event=None):
+        """Update analyzer latency when input changes"""
+        val = self.var_latency.get()
+        self.analyzer.latency_compensation = val
+        self.save_config()
+        # self.log(f"Latency compensation updated to {val}s")
+
     def toggle_analysis(self):
         if self.analysis_thread and self.analysis_thread.is_alive():
             self.analyzer.stop()
             self.btn_start.config(text="Start Analysis")
             self.log("=== ANALYSIS STOPPED ===")
         else:
+            # Update latency before starting
+            self.analyzer.latency_compensation = self.var_latency.get()
+            
             self.log("=== ANALYSIS STARTED ===")
             self.analysis_thread = threading.Thread(target=self.analyzer.process_loop)
             self.analysis_thread.daemon = True
