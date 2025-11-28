@@ -6,14 +6,11 @@ import time
 import re
 from game_state import GameState
 
-# Set tesseract path if needed (Windows default)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-# If the user has it elsewhere, they might need to uncomment and adjust this.
-try:
-    pytesseract.get_tesseract_version()
-except pytesseract.TesseractNotFoundError:
-    print("Tesseract not found in PATH. Trying default location...", flush=True)
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+from paddleocr import PaddleOCR
+import logging
+
+# Suppress PaddleOCR logging
+logging.getLogger("ppocr").setLevel(logging.ERROR)
 
 
 
@@ -52,8 +49,14 @@ class Analyzer:
         self.gametype_detected = False      # Track if we've detected game type
         
         # Debug
-        self.debug_mode = False
+        self.debug_mode = True
         self.debug_counter = 0
+        
+        # Initialize PaddleOCR (English, use_angle_cls=False for speed)
+        # use_gpu=False for CPU (or True if CUDA available and installed)
+        print("Initializing PaddleOCR... (this may take a moment)", flush=True)
+        self.ocr = PaddleOCR(use_angle_cls=False, lang='en')
+        print("PaddleOCR Initialized!", flush=True)
     
     def log(self, message):
         """Log to both console and GUI"""
@@ -96,19 +99,82 @@ class Analyzer:
         - Convert to grayscale
         - Apply thresholding to isolate white text
         """
-        # Upscale for better OCR
+        # Robust Preprocessing for PaddleOCR (Recognition Mode)
+        # 1. Upscale (2x) to ensure text is large enough
         h, w = img.shape[:2]
-        img = cv2.resize(img, (w * upscale, h * upscale), interpolation=cv2.INTER_CUBIC)
+        img = cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
         
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # 2. Invert (White text on Dark bg -> Black text on White bg)
+        # PaddleOCR (and most OCR) is trained on black text on white paper
+        img = cv2.bitwise_not(img)
         
-        # Try adaptive threshold first (better for varying lighting)
-        # thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+        # 3. Add Padding (White border)
+        # Helps if text is touching edges
+        img = cv2.copyMakeBorder(img, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=(255, 255, 255))
         
-        # Or simple threshold for white text on dark background
-        _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY)
+        return img
         
-        return thresh
+        # OLD TESSERACT PREPROCESSING (Disabled)
+        # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY)
+        # return thresh
+
+    def run_ocr(self, img, whitelist=None):
+        """
+        Run PaddleOCR on the image.
+        Returns the concatenated text found.
+        """
+        if img is None:
+            return ""
+            
+        # PaddleOCR expects RGB or BGR, works with grayscale too but might need conversion
+        # It handles numpy arrays directly
+        
+        # Ensure 3 channels (PaddleOCR might fail on single channel)
+        if len(img.shape) == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        
+        # Run OCR
+        # Calling without arguments defaults to det=True, rec=True, cls=False (from init)
+        try:
+            result = self.ocr.ocr(img)
+        except Exception as e:
+            print(f"OCR ERROR: {e}", flush=True)
+            return ""
+        
+        # Result structure with det=False: [(text, score)]
+        # Result structure with det=True: [ [ [box], [text, score] ], ... ]
+        
+        # DEBUG: Log raw result to see what's happening
+        # print(f"DEBUG OCR RAW: {result}", flush=True)
+        
+        full_text = []
+        if result:
+            # Check format
+            if isinstance(result[0], tuple):
+                # Recognition only format: [(text, score), ...]
+                for line in result:
+                    text = line[0]
+                    score = line[1]
+                    # print(f"DEBUG OCR CANDIDATE: '{text}' (score: {score})", flush=True)
+                    if score > 0.1: # Lowered threshold from 0.6 to 0.1
+                        full_text.append(text)
+            elif isinstance(result[0], list):
+                # Detection + Recognition format
+                for line in result[0]:
+                    text = line[1][0]
+                    score = line[1][1]
+                    # print(f"DEBUG OCR CANDIDATE: '{text}' (score: {score})", flush=True)
+                    if score > 0.1:
+                        full_text.append(text)
+                # Optional: Filter by whitelist if provided (simple regex)
+                if whitelist:
+                    # Very basic filtering - keep only chars in whitelist
+                    # But regex is better done by caller usually
+                    pass
+                full_text.append(text)
+        
+        return " ".join(full_text).strip()
 
     def parse_time(self, text):
         # Matches MM:SS, M:SS, MM SS, M SS, MM.SS, etc.
@@ -152,28 +218,32 @@ class Analyzer:
                             countdown_frame = self.capture_frame(sct, self.countdown_region)
                             if countdown_frame is not None:
                                 countdown_thresh = self.preprocess_image(countdown_frame)
-                                countdown_text = pytesseract.image_to_string(countdown_thresh, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
+                                # countdown_text = pytesseract.image_to_string(countdown_thresh, config='--psm 7 -c tessedit_char_whitelist=0123456789').strip()
+                                countdown_text = self.run_ocr(countdown_thresh)
                         
                         # 2. Game Type OCR (when enabled)
                         if self.ocr_gametype_enabled:
                             gametype_frame = self.capture_frame(sct, self.gametype_region)
                             if gametype_frame is not None:
                                 gametype_thresh = self.preprocess_image(gametype_frame)
-                                gametype_text = pytesseract.image_to_string(gametype_thresh, config='--psm 7').strip()
+                                # gametype_text = pytesseract.image_to_string(gametype_thresh, config='--psm 7').strip()
+                                gametype_text = self.run_ocr(gametype_thresh)
                         
                         # 3. Timer OCR (when enabled)
                         if self.ocr_timer_enabled:
                             timer_frame = self.capture_frame(sct, self.timer_region)
                             if timer_frame is not None:
                                 timer_thresh = self.preprocess_image(timer_frame)
-                                timer_text = pytesseract.image_to_string(timer_thresh, config='--psm 7 -c tessedit_char_whitelist=0123456789:').strip()
+                                # timer_text = pytesseract.image_to_string(timer_thresh, config='--psm 7 -c tessedit_char_whitelist=0123456789:').strip()
+                                timer_text = self.run_ocr(timer_thresh)
                         
                         # 4. Level OCR (when enabled)
                         if self.ocr_level_enabled:
                             level_frame = self.capture_frame(sct, self.level_region)
                             if level_frame is not None:
                                 level_thresh = self.preprocess_image(level_frame)
-                                level_text = pytesseract.image_to_string(level_thresh, config='--psm 7').strip()
+                                # level_text = pytesseract.image_to_string(level_thresh, config='--psm 7').strip()
+                                level_text = self.run_ocr(level_thresh)
                         
                         # COUNTDOWN DETECTION - Simple: Reset when "2" appears after "3"
                         if countdown_text == '3':
@@ -223,6 +293,27 @@ class Analyzer:
                             if log_parts:
                                 self.log(", ".join(log_parts))
 
+                        # Debug: Save images every 30 frames
+                        if self.debug_mode and self.debug_counter % 30 == 0:
+                            if self.ocr_timer_enabled and timer_frame is not None:
+                                cv2.imwrite('debug_timer.png', timer_frame)
+                                if 'timer_thresh' in locals(): cv2.imwrite('debug_timer_processed.png', timer_thresh)
+                                
+                            if self.ocr_gametype_enabled and gametype_frame is not None:
+                                cv2.imwrite('debug_gametype.png', gametype_frame)
+                                if 'gametype_thresh' in locals(): cv2.imwrite('debug_gametype_processed.png', gametype_thresh)
+                                
+                            if self.ocr_level_enabled and level_frame is not None:
+                                cv2.imwrite('debug_level.png', level_frame)
+                                if 'level_thresh' in locals(): cv2.imwrite('debug_level_processed.png', level_thresh)
+                                
+                            if self.ocr_countdown_enabled and countdown_frame is not None:
+                                cv2.imwrite('debug_countdown.png', countdown_frame)
+                                if 'countdown_thresh' in locals(): cv2.imwrite('debug_countdown_processed.png', countdown_thresh)
+                            
+                            # self.log("Saved debug images")
+                        self.debug_counter += 1
+
                         if self.state.state == GameState.IDLE or self.state.state == GameState.FINISHED:
                             # Start Detection: Detect JUMP from low time to high time (approximately +10 minutes)
                             if current_time_seconds and self.last_timer_value:
@@ -250,21 +341,22 @@ class Analyzer:
                             #    self.livesplit.reset()
                             
                             # IGT Update: Sync LiveSplit Game Time with OCR Time
-                            if current_time_seconds is not None and self.state.start_time is not None:
-                                # Calculate elapsed Game Time
-                                # Start Time (e.g. 1800s) - Current Time (e.g. 1789s) = 11s elapsed
-                                elapsed_gametime = self.state.start_time - current_time_seconds
-                                
-                                # COMPENSATION: Add processing latency + buffer
-                                # The frame captured at 'loop_start_time' took 'time.time() - loop_start_time' to process.
-                                # By the time we send this, the game has advanced by that much.
-                                # We also add a small buffer (user configured) to account for transmission/display lag
-                                latency = time.time() - loop_start_time
-                                adjusted_gametime = elapsed_gametime + latency + self.latency_compensation
-                                
-                                # Send to LiveSplit (only if valid positive time)
-                                if adjusted_gametime >= 0:
-                                    self.livesplit.set_gametime(adjusted_gametime)
+                            # DISABLED as per user request (only set once at start)
+                            # if current_time_seconds is not None and self.state.start_time is not None:
+                            #     # Calculate elapsed Game Time
+                            #     # Start Time (e.g. 1800s) - Current Time (e.g. 1789s) = 11s elapsed
+                            #     elapsed_gametime = self.state.start_time - current_time_seconds
+                            #     
+                            #     # COMPENSATION: Add processing latency + buffer
+                            #     # The frame captured at 'loop_start_time' took 'time.time() - loop_start_time' to process.
+                            #     # By the time we send this, the game has advanced by that much.
+                            #     # We also add a small buffer (user configured) to account for transmission/display lag
+                            #     latency = time.time() - loop_start_time
+                            #     adjusted_gametime = elapsed_gametime + latency + self.latency_compensation
+                            #     
+                            #     # Send to LiveSplit (only if valid positive time)
+                            #     if adjusted_gametime >= 0:
+                            #         self.livesplit.set_gametime(adjusted_gametime)
                             
                             # Split Logic
                             # 1. "ZOMBIES" transition

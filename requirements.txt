@@ -3,3 +3,5 @@ pytesseract
 mss
 numpy
 Pillow
+paddlepaddle
+paddleocr

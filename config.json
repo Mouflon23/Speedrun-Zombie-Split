@@ -1,27 +1,27 @@
 {
   "timer_region": {
     "top": 0,
-    "left": 900,
-    "width": 121,
-    "height": 29
+    "left": 922,
+    "width": 75,
+    "height": 27
   },
   "gametype_region": {
     "top": 23,
-    "left": 899,
-    "width": 122,
-    "height": 40
+    "left": 901,
+    "width": 120,
+    "height": 44
   },
   "level_region": {
-    "top": 81,
-    "left": 848,
-    "width": 211,
-    "height": 26
+    "top": 72,
+    "left": 884,
+    "width": 154,
+    "height": 40
   },
   "countdown_region": {
-    "top": 371,
-    "left": 740,
-    "width": 451,
-    "height": 345
+    "top": 396,
+    "left": 820,
+    "width": 274,
+    "height": 308
   },
   "latency_compensation": 0.1
 }
